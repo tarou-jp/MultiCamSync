@@ -10,13 +10,30 @@ import AVFoundation
 import Combine
 import UIKit
 
+enum CameraResolution: String, CaseIterable, Equatable {
+    case hd = "HD"
+    case _4k = "4K"
+}
+
+enum CameraFrameRate: Int, CaseIterable, Equatable {
+    case fps24 = 24
+    case fps30 = 30
+    case fps60 = 60
+}
+
 class CameraManager: NSObject, ObservableObject {
     // カメラの状態を発行
     @Published var isAuthorized = false
     @Published var isFrontCamera = false
     @Published var isFlashEnabled = false
     @Published var isRecording = false
+    
     @Published var currentZoomFactor: CGFloat = 1.0
+    
+    @Published var currentResolution: CameraResolution = .hd
+    @Published var currentFrameRate: CameraFrameRate = .fps30
+    @Published var availableResolutions: [CameraResolution] = []
+    @Published var availableFrameRates: [CameraFrameRate] = []
     
     // カメラセッション
     let captureSession = AVCaptureSession()
@@ -59,28 +76,31 @@ class CameraManager: NSObject, ObservableObject {
     
     // キャプチャセッションのセットアップ
     func setupCaptureSession() {
-        // メインスレッドでの操作を避ける
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
             self.captureSession.beginConfiguration()
-            
-            // 解像度設定
+            // 解像度は後で setResolution() で設定するので、ひとまず .high とかにしておく
             if self.captureSession.canSetSessionPreset(.high) {
                 self.captureSession.sessionPreset = .high
             }
             
-            // 入力の設定
             self.setupInputs()
-            
-            // 出力の設定
             self.setupOutputs()
-            
             self.captureSession.commitConfiguration()
             
             // セッション開始
             if !self.captureSession.isRunning {
                 self.captureSession.startRunning()
+            }
+            
+            // デバイスのサポート状況に応じて利用可能な解像度・fps を計算
+            self.updateAvailableResAndFps()
+            
+            // ひとまずデフォルトを適用
+            // （端末が対応していなければ fallback する処理を入れることも検討）
+            DispatchQueue.main.async {
+                self.setResolution(.hd, frameRate: .fps30)
             }
         }
     }
@@ -92,11 +112,15 @@ class CameraManager: NSObject, ObservableObject {
             captureSession.removeInput(input)
         }
         
-        // カメラデバイスの選択
-        let deviceType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
-        let position: AVCaptureDevice.Position = isFrontCamera ? .front : .back
+        // マルチカメラがあれば優先して取得する
+        let deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera, .builtInWideAngleCamera]
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: deviceTypes,
+            mediaType: .video,
+            position: isFrontCamera ? .front : .back
+        )
         
-        guard let camera = AVCaptureDevice.default(deviceType, for: .video, position: position) else {
+        guard let camera = discoverySession.devices.first else {
             print("該当するカメラが見つかりません")
             return
         }
@@ -138,6 +162,108 @@ class CameraManager: NSObject, ObservableObject {
         }
     }
     
+    // デバイスが対応している解像度・fps をチェック
+    private func updateAvailableResAndFps() {
+        guard let camera = currentCamera else { return }
+        
+        // 解像度
+        var possibleResolutions: [CameraResolution] = []
+        
+        // HD (1920x1080) が使えるか
+        if captureSession.canSetSessionPreset(.hd1920x1080) {
+            possibleResolutions.append(.hd)
+        }
+        
+        // 4K (3840x2160) が使えるか
+        if #available(iOS 11.0, *) {
+            if captureSession.canSetSessionPreset(.hd4K3840x2160) {
+                possibleResolutions.append(._4k)
+            }
+        }
+        
+        // fps
+        // カメラの activeFormat がサポートするフレームレート範囲を取得
+        let ranges = camera.activeFormat.videoSupportedFrameRateRanges
+        
+        var possibleFrameRates: Set<CameraFrameRate> = []
+        for fps in CameraFrameRate.allCases {
+            // 例: fps=24 のとき、range.minFrameRate <= 24 <= range.maxFrameRate ならOK
+            if ranges.contains(where: {
+                $0.minFrameRate <= Double(fps.rawValue) && Double(fps.rawValue) <= $0.maxFrameRate
+            }) {
+                possibleFrameRates.insert(fps)
+            }
+        }
+        
+        DispatchQueue.main.async {
+            self.availableResolutions = possibleResolutions
+            self.availableFrameRates = Array(possibleFrameRates).sorted {
+                $0.rawValue < $1.rawValue
+            }
+        }
+    }
+    
+    // 解像度とフレームレートを同時にセット
+    func setResolution(_ resolution: CameraResolution, frameRate: CameraFrameRate) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.captureSession.beginConfiguration()
+            
+            // セッションプリセットを解像度に応じて設定
+            switch resolution {
+            case .hd:
+                if self.captureSession.canSetSessionPreset(.hd1920x1080) {
+                    self.captureSession.sessionPreset = .hd1920x1080
+                }
+            case ._4k:
+                if #available(iOS 11.0, *) {
+                    if self.captureSession.canSetSessionPreset(.hd4K3840x2160) {
+                        self.captureSession.sessionPreset = .hd4K3840x2160
+                    }
+                }
+            }
+            
+            // フレームレート設定
+            if let device = self.currentCamera {
+                do {
+                    try device.lockForConfiguration()
+                    let desiredFps = frameRate.rawValue
+                    device.activeVideoMinFrameDuration = CMTimeMake(value: 1, timescale: Int32(desiredFps))
+                    device.activeVideoMaxFrameDuration = CMTimeMake(value: 1, timescale: Int32(desiredFps))
+                    device.unlockForConfiguration()
+                } catch {
+                    print("フレームレート設定失敗: \(error)")
+                }
+            }
+            
+            self.captureSession.commitConfiguration()
+            
+            DispatchQueue.main.async {
+                self.currentResolution = resolution
+                self.currentFrameRate = frameRate
+            }
+        }
+    }
+    
+    // 解像度をタップで切り替える例
+    func switchResolution() {
+        guard !availableResolutions.isEmpty else { return }
+        if let idx = availableResolutions.firstIndex(of: currentResolution) {
+            let nextIdx = (idx + 1) % availableResolutions.count
+            let nextResolution = availableResolutions[nextIdx]
+            setResolution(nextResolution, frameRate: currentFrameRate)
+        }
+    }
+    
+    // fps をタップで切り替える例
+    func switchFrameRate() {
+        guard !availableFrameRates.isEmpty else { return }
+        if let idx = availableFrameRates.firstIndex(of: currentFrameRate) {
+            let nextIdx = (idx + 1) % availableFrameRates.count
+            let nextFps = availableFrameRates[nextIdx]
+            setResolution(currentResolution, frameRate: nextFps)
+        }
+    }
+    
     // カメラの切り替え
     func switchCamera() {
         isFrontCamera.toggle()
@@ -145,23 +271,32 @@ class CameraManager: NSObject, ObservableObject {
     }
     
     // ズーム設定
-    func setZoom(factor: CGFloat) {
+    func setZoom(factor displayedZoom: CGFloat) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self, let camera = self.currentCamera else { return }
-            
             do {
                 try camera.lockForConfiguration()
                 
-                // ズーム範囲内かチェック
-                let minZoom: CGFloat = 1.0
-                let maxZoom: CGFloat = camera.activeFormat.videoMaxZoomFactor
-                let clampedFactor = min(max(factor, minZoom), maxZoom)
+                let multiplier: CGFloat
+                if #available(iOS 18.0, *) {
+                    multiplier = camera.displayVideoZoomFactorMultiplier
+                } else {
+                    multiplier = 1.0
+                }
                 
-                camera.videoZoomFactor = clampedFactor
+                let desiredActualZoom = displayedZoom / multiplier
+                
+                let minActualZoom: CGFloat = 1.0
+                let maxDesiredActualZoom = 10.0 / multiplier
+                let maxActualZoom = min(camera.activeFormat.videoMaxZoomFactor, maxDesiredActualZoom)
+                let clampedActualZoom = min(max(desiredActualZoom, minActualZoom), maxActualZoom)
+                
+                camera.videoZoomFactor = clampedActualZoom
                 camera.unlockForConfiguration()
                 
                 DispatchQueue.main.async {
-                    self.currentZoomFactor = clampedFactor
+                    // UIに表示する値は、実際のズーム値に multiplier を掛け直す
+                    self.currentZoomFactor = clampedActualZoom * multiplier
                 }
             } catch {
                 print("ズーム設定エラー: \(error.localizedDescription)")
