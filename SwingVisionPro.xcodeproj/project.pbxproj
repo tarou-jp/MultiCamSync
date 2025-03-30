@@ -10,9 +10,22 @@
 		B05A39752D9923F700912B23 /* SwingVisionPro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwingVisionPro.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B05A39C62D99597900912B23 /* Exceptions for "SwingVisionPro" folder in "SwingVisionPro" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B05A39742D9923F700912B23 /* SwingVisionPro */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		B05A39772D9923F700912B23 /* SwingVisionPro */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B05A39C62D99597900912B23 /* Exceptions for "SwingVisionPro" folder in "SwingVisionPro" target */,
+			);
 			path = SwingVisionPro;
 			sourceTree = "<group>";
 		};
@@ -252,6 +265,12 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SwingVisionPro/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "";
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "ゴルフスイングを複数アングルから撮影するためにカメラへのアクセスが必要です";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ゴルフスイング動画の音声を録音するためにマイクへのアクセスが必要です";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "録画したゴルフスイング動画をフォトライブラリに保存するために必要です";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -291,6 +310,12 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SwingVisionPro/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "";
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "ゴルフスイングを複数アングルから撮影するためにカメラへのアクセスが必要です";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ゴルフスイング動画の音声を録音するためにマイクへのアクセスが必要です";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "録画したゴルフスイング動画をフォトライブラリに保存するために必要です";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

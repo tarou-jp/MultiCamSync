@@ -9,9 +9,20 @@ import SwiftUI
 
 @main
 struct SwingVisionProApp: App {
+    @StateObject private var cameraManager = CameraManager()
+    
+    init() {
+        _ = UIConstants.shared
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(cameraManager)
         }
     }
+}
+
+#Preview {
+    ContentView()
 }
