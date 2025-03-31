@@ -9,10 +9,12 @@ import SwiftUI
 
 struct FooterBarView: View {
     @EnvironmentObject var cameraManager: CameraManager
-    
+    @EnvironmentObject var syncManager: SyncManager
+    @State private var isShowingDeviceConnectionView = false
+
     var body: some View {
         HStack {
-            // アルバムボタン
+            // アルバムボタン（元々のRectangleをそのまま維持）
             Button(action: {
                 // アルバムを開く処理
             }) {
@@ -24,12 +26,12 @@ struct FooterBarView: View {
             
             Spacer()
             
-            // 録画ボタン - 直接cameraManagerを操作
+            // 録画ボタン（同期処理のため SyncManager を使用）
             Button(action: {
                 if cameraManager.isRecording {
-                    cameraManager.stopRecording()
+                    syncManager.requestStopRecording()
                 } else {
-                    cameraManager.startRecording()
+                    syncManager.requestStartRecording()
                 }
             }) {
                 Circle()
@@ -46,7 +48,7 @@ struct FooterBarView: View {
             
             // デバイス接続ボタン
             Button(action: {
-                // デバイス接続処理
+                isShowingDeviceConnectionView = true
             }) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.system(size: 24))
@@ -55,6 +57,9 @@ struct FooterBarView: View {
             }
         }
         .padding(.horizontal, 30)
-        .padding(.bottom, UIConstants.shared.bottomPadding) // 下部の固定余白分だけパディングを追加
+        .padding(.bottom, UIConstants.shared.bottomPadding)
+        .sheet(isPresented: $isShowingDeviceConnectionView) {
+            DeviceConnectionView()
+        }
     }
 }

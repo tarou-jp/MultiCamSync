@@ -269,6 +269,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "ゴルフスイングを複数アングルから撮影するためにカメラへのアクセスが必要です";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "$(DEVELOPMENT_LANGUAGE)";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ゴルフスイング動画の音声を録音するためにマイクへのアクセスが必要です";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "録画したゴルフスイング動画をフォトライブラリに保存するために必要です";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -314,6 +315,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "ゴルフスイングを複数アングルから撮影するためにカメラへのアクセスが必要です";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "$(DEVELOPMENT_LANGUAGE)";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ゴルフスイング動画の音声を録音するためにマイクへのアクセスが必要です";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "録画したゴルフスイング動画をフォトライブラリに保存するために必要です";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
