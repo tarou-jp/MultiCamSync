@@ -16,10 +16,6 @@ struct PendingInvitation: Identifiable {
     let invitationHandler: (Bool, MCSession?) -> Void
 }
 
-extension MCPeerID: @retroactive Identifiable {
-    public var id: String { self.displayName }
-}
-
 class MultipeerManager: NSObject, ObservableObject {
     // サービスの種類
     private let serviceType = "swingvision"
@@ -233,13 +229,10 @@ extension MultipeerManager: MCNearbyServiceBrowserDelegate {
     }
 }
 
-// 下位互換性のために残す（既存のコードで使われている可能性があるため）
-extension MultipeerManager {
-    var isMaster: Bool { false }
-    var isSlave: Bool { false }
-    var localRole: Int { 0 }
-    var masterPeer: MCPeerID? { nil }
+extension MCPeerID: @retroactive Identifiable {
+    public var id: String { self.displayName }
 }
+
 
 extension NSNotification.Name {
     static let didReceivePeerMessage = NSNotification.Name("didReceivePeerMessage")
