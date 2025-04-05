@@ -9,7 +9,8 @@ import SwiftUI
 import AVFoundation
 
 struct CameraView: View {
-    @EnvironmentObject var cameraManager: CameraManager
+    // 単一の環境オブジェクトとして AppCoordinator を利用
+    @EnvironmentObject var appCoordinator: AppCoordinator
     @State private var lastPinchScale: CGFloat = 1.0
     
     var body: some View {
@@ -18,26 +19,24 @@ struct CameraView: View {
                 // 黒背景を全画面に
                 Color.black.edgesIgnoringSafeArea(.all)
                 
-                // 直接計算
+                // プレビューの高さを計算（16:9の比率）
                 let previewHeight = geometry.size.width * 16/9
                 let bottomPadding: CGFloat = 20
                 let totalPadding = max(0, geometry.size.height - previewHeight)
                 let topPadding = max(0, totalPadding - bottomPadding)
                 
                 VStack(spacing: 0) {
-                    Spacer()
-                        .frame(height: topPadding)
+                    Spacer().frame(height: topPadding)
                     
                     CameraPreviewView(
-                        session: cameraManager.captureSession,
+                        session: appCoordinator.cameraManager.captureSession,
                         onPinch: { scale in
                             handlePinch(scale: scale)
                         }
                     )
                     .frame(width: geometry.size.width, height: previewHeight)
                     
-                    Spacer()
-                        .frame(height: bottomPadding)
+                    Spacer().frame(height: bottomPadding)
                 }
                 .onAppear {
                     DispatchQueue.main.async {
@@ -46,7 +45,6 @@ struct CameraView: View {
                     }
                 }
                 .onChange(of: geometry.size) { _, newSize in
-                    // サイズ変更時も値を更新
                     let newPreviewHeight = newSize.width * 16/9
                     let newTotalPadding = max(0, newSize.height - newPreviewHeight)
                     let newTopPadding = max(0, newTotalPadding - bottomPadding)
@@ -56,7 +54,7 @@ struct CameraView: View {
                 }
                 
                 // カメラ権限がない場合の表示
-                if !cameraManager.isAuthorized {
+                if !appCoordinator.cameraManager.isAuthorized {
                     VStack {
                         Text("カメラへのアクセスが許可されていません")
                             .foregroundColor(.white)
@@ -88,9 +86,8 @@ struct CameraView: View {
         let pinchFactor = scale / lastPinchScale
         lastPinchScale = scale
         
-        let newZoomFactor = cameraManager.currentZoomFactor * pinchFactor
-        
-        cameraManager.setZoom(factor: newZoomFactor)
+        let newZoomFactor = appCoordinator.cameraManager.currentZoomFactor * pinchFactor
+        appCoordinator.cameraManager.setZoom(factor: newZoomFactor)
     }
 }
 

@@ -8,8 +8,8 @@
 import SwiftUI
 
 struct FooterBarView: View {
-    @EnvironmentObject var cameraManager: CameraManager
-    @EnvironmentObject var syncManager: SyncManager
+    // 複数の manager を統合した AppCoordinator を環境オブジェクトとして利用
+    @EnvironmentObject var appCoordinator: AppCoordinator
     @State private var isShowingDeviceConnectionView = false
 
     var body: some View {
@@ -26,12 +26,12 @@ struct FooterBarView: View {
             
             Spacer()
             
-            // 録画ボタン（同期処理のため SyncManager を使用）
+            // 録画ボタン（録画中なら requestStopRecording、未録画なら requestStartRecording を実行）
             Button(action: {
-                if cameraManager.isRecording {
-                    syncManager.requestStopRecording()
+                if appCoordinator.cameraManager.isRecording {
+                    appCoordinator.requestStopRecording()
                 } else {
-                    syncManager.requestStartRecording()
+                    appCoordinator.requestStartRecording()
                 }
             }) {
                 Circle()
@@ -39,7 +39,7 @@ struct FooterBarView: View {
                     .frame(width: 70, height: 70)
                     .overlay(
                         Circle()
-                            .fill(cameraManager.isRecording ? Color.red : Color.white)
+                            .fill(appCoordinator.cameraManager.isRecording ? Color.red : Color.white)
                             .frame(width: 60, height: 60)
                     )
             }
@@ -61,5 +61,12 @@ struct FooterBarView: View {
         .sheet(isPresented: $isShowingDeviceConnectionView) {
             DeviceConnectionView()
         }
+    }
+}
+
+struct FooterBarView_Previews: PreviewProvider {
+    static var previews: some View {
+        FooterBarView()
+            .environmentObject(AppCoordinator(cameraManager: CameraManager(), multipeerManager: MultipeerManager()))
     }
 }

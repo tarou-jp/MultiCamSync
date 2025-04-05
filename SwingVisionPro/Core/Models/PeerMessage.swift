@@ -8,14 +8,15 @@
 import Foundation
 
 enum PeerMessageType: String, Codable {
-    case connectionRequest
-    case connectionAccept
-    case connectionReject
-    case ping
-    case pong
-    case disconnect
+    // 同期用
     case startRecording
     case stopRecording
+    
+    // WebRTCシグナリング用
+    case webrtcOffer
+    case webrtcAnswer
+    case webrtcCandidate
+    case webrtcBye
 }
 
 

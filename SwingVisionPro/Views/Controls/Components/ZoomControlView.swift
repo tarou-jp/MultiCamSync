@@ -8,8 +8,10 @@
 import SwiftUI
 
 struct ZoomControlView: View {
-    @EnvironmentObject var cameraManager: CameraManager
-    
+    // CameraManager ではなく、AppCoordinator 経由でカメラ操作する前提
+    @EnvironmentObject var appCoordinator: AppCoordinator
+
+    // ズーム候補のタプル配列
     let zoomOptions: [(String, CGFloat)] = [
         ("0.5×", 0.5),
         ("1×", 1.0),
@@ -18,24 +20,26 @@ struct ZoomControlView: View {
     
     var body: some View {
         HStack(spacing: 16) {
-            ForEach(0..<zoomOptions.count, id: \.self) { index in
-                let zoomOption = zoomOptions[index]
-                let isActive = isActiveZoom(zoomOption.1)
+            SwiftUI.ForEach(Array(zoomOptions.enumerated()), id: \.offset) { (index, zoomOption) in
+                let (label, factor) = zoomOption
+                let isActive = isActiveZoom(factor)
                 
                 Button(action: {
                     withAnimation {
-                        cameraManager.setZoom(factor: zoomOption.1)
+                        appCoordinator.cameraManager.setZoom(factor: factor)
                     }
                 }) {
                     if isActive {
-                        Text(formatZoom(cameraManager.currentZoomFactor))
+                        // 現在のズーム値と同じ/近い場合
+                        Text(formatZoom(appCoordinator.cameraManager.currentZoomFactor))
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.yellow)
                             .frame(width: 36, height: 36)
                             .background(Color.black.opacity(0.6))
                             .clipShape(Circle())
                     } else {
-                        Text(zoomOption.0)
+                        // 他のズーム値
+                        Text(label)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.white)
                             .frame(width: 32, height: 32)
@@ -52,25 +56,25 @@ struct ZoomControlView: View {
         .padding(.bottom, 30)
     }
     
+    /// 現在のズーム値が、引数で指定したズーム値のレンジにあるかどうかを判定
     private func isActiveZoom(_ zoom: CGFloat) -> Bool {
-        let currentZoom = cameraManager.currentZoomFactor
+        let currentZoom = appCoordinator.cameraManager.currentZoomFactor
         
+        // ここは元のコードと同じ判定ロジック
         if zoom == 0.5 && currentZoom < 0.5 {
             return true
-        }
-        else if zoom == 0.5 && currentZoom >= 0.5 && currentZoom < 1.0 {
+        } else if zoom == 0.5 && currentZoom >= 0.5 && currentZoom < 1.0 {
             return true
-        }
-        else if zoom == 1.0 && currentZoom >= 1.0 && currentZoom < 2.0 {
+        } else if zoom == 1.0 && currentZoom >= 1.0 && currentZoom < 2.0 {
             return true
-        }
-        else if zoom == 2.0 && currentZoom >= 2.0 {
+        } else if zoom == 2.0 && currentZoom >= 2.0 {
             return true
         }
         
         return false
     }
-
+    
+    /// ズーム値を文字列表示用にフォーマット
     private func formatZoom(_ zoom: CGFloat) -> String {
         if abs(zoom - 1.0) < 0.05 {
             return "1×"
@@ -81,5 +85,17 @@ struct ZoomControlView: View {
         } else {
             return String(format: "%.1f×", zoom)
         }
+    }
+}
+
+struct ZoomControlView_Previews: PreviewProvider {
+    static var previews: some View {
+        ZoomControlView()
+            .environmentObject(
+                AppCoordinator(
+                    cameraManager: CameraManager(),
+                    multipeerManager: MultipeerManager()
+                )
+            )
     }
 }
