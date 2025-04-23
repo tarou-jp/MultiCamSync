@@ -212,6 +212,21 @@ class CameraManager: NSObject, ObservableObject {
            print("CameraManager: ビデオデータ出力の追加に失敗しました")
        }
    }
+    
+    func pauseCaptureSession() {
+        guard captureSession.isRunning else { return }
+        
+        print("CameraManager: カメラセッションを一時停止します")
+        captureSession.stopRunning()
+    }
+    
+    /// カメラセッションを再開する
+    func resumeCaptureSession() {
+        guard !captureSession.isRunning else { return }
+        
+        print("CameraManager: カメラセッションを再開します")
+        captureSession.startRunning()
+    }
    
    // デバイスが対応している解像度・fps をチェック
    private func updateAvailableResAndFps() {

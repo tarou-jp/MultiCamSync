@@ -19,15 +19,15 @@ struct DeviceConnectionView: View {
     @State private var cancellables = Set<AnyCancellable>()
     
     private var connectablePeers: [MCPeerID] {
-        discoveredPeers.filter {
-            !connectedPeers.contains($0)
-        }.sorted { $0.displayName < $1.displayName }
+        discoveredPeers
+            .filter { !connectedPeers.contains($0) }
+            .sorted { $0.displayName < $1.displayName }
     }
 
     var body: some View {
         NavigationView {
             List {
-                // デバイス接続セクション
+                // 周辺デバイス セクション
                 Section(header: Text("周辺のデバイス")) {
                     if connectablePeers.isEmpty {
                         HStack {
@@ -66,7 +66,7 @@ struct DeviceConnectionView: View {
                     }
                 }
                 
-                // 接続済みデバイスセクション
+                // 接続済みデバイス セクション
                 if !connectedPeers.isEmpty {
                     Section(header: Text("接続済みデバイス")) {
                         ForEach(connectedPeers, id: \.displayName) { peer in
@@ -79,7 +79,7 @@ struct DeviceConnectionView: View {
                                 
                                 Spacer()
                                 
-                                // ストリーミング状態を示すアイコン（最小限の表示）
+                                // ストリーミング状態を示すアイコン
                                 if appCoordinator.webRTCManager.isStreaming {
                                     Image(systemName: "video.fill")
                                         .foregroundColor(appCoordinator.webRTCManager.isConnected ? .green : .orange)
@@ -90,7 +90,7 @@ struct DeviceConnectionView: View {
                             .padding(.vertical, 2)
                         }
                         
-                        // 「すべての接続を解除」ボタン
+                        // すべての接続を解除
                         Button(action: {
                             appCoordinator.disconnectAllPeers()
                         }) {
@@ -106,7 +106,7 @@ struct DeviceConnectionView: View {
                     }
                 }
                 
-                // アプリ情報セクション
+                // アプリ情報 セクション
                 Section(header: Text("アプリ情報")) {
                     HStack {
                         Text("デバイスID")
@@ -129,50 +129,51 @@ struct DeviceConnectionView: View {
                 }
             }
             .listStyle(InsetGroupedListStyle())
+            
+            // タイトルを小さく（.inline）し、左上に「閉じる」ボタンを配置
             .navigationTitle("デバイス接続")
-            .navigationBarItems(
-                trailing: Button("閉じる") {
-                    presentationMode.wrappedValue.dismiss()
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("閉じる") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
                 }
-                .buttonStyle(PlainButtonStyle())
-            )
+            }
+            
+            // 表示時の処理
             .onAppear {
-                // 初期値を設定
                 updateLocalState()
                 
-                // マルチピア検索と広告を開始
                 appCoordinator.multipeerManager.startBrowsing()
                 appCoordinator.multipeerManager.startAdvertising()
                 
-                // connectedPeersの変更を監視
+                // 接続済みピアの監視
                 appCoordinator.multipeerManager.$connectedPeers
                     .receive(on: RunLoop.main)
                     .sink { peers in
                         connectedPeers = peers
-                        print("接続済みピア更新: \(peers.map { $0.displayName }.joined(separator: ", "))")
                     }
                     .store(in: &cancellables)
                 
-                // discoveredPeersの変更を監視
+                // 発見されたピアの監視
                 appCoordinator.multipeerManager.$discoveredPeers
                     .receive(on: RunLoop.main)
                     .sink { peers in
                         discoveredPeers = peers
-                        print("発見されたピア更新: \(peers.map { $0.displayName }.joined(separator: ", "))")
                     }
                     .store(in: &cancellables)
                 
-                // WebRTCManagerの状態変更も監視
+                // WebRTCManagerの状態変更を監視
                 appCoordinator.webRTCManager.objectWillChange
                     .receive(on: RunLoop.main)
                     .sink { _ in
-                        print("WebRTCManager状態更新")
-                        // 強制的に再描画
+                        // 変更時に再描画
                         updateLocalState()
                     }
                     .store(in: &cancellables)
                 
-                // 1秒ごとの更新タイマー
+                // 1秒ごとにローカルの状態を更新するタイマー
                 Timer.publish(every: 1.0, on: .main, in: .common)
                     .autoconnect()
                     .sink { _ in
@@ -180,25 +181,16 @@ struct DeviceConnectionView: View {
                     }
                     .store(in: &cancellables)
             }
+            // 非表示になったら購読キャンセル
             .onDisappear {
-                // 購読をキャンセル
                 cancellables.forEach { $0.cancel() }
                 cancellables.removeAll()
             }
         }
     }
     
-    // ローカルの状態変数を更新
     private func updateLocalState() {
         connectedPeers = appCoordinator.multipeerManager.connectedPeers
         discoveredPeers = appCoordinator.multipeerManager.discoveredPeers
-    }
-}
-
-struct DeviceConnectionView_Previews: PreviewProvider {
-    static var previews: some View {
-        DeviceConnectionView()
-            .environmentObject(AppCoordinator(cameraManager: CameraManager(),
-                                              multipeerManager: MultipeerManager()))
     }
 }

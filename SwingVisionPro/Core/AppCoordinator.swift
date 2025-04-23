@@ -129,12 +129,6 @@ class AppCoordinator: NSObject, ObservableObject, CameraManagerDelegate, Multipe
         webRTCManager.startCall(as: .sender, targetPeer: targetPeer)
     }
     
-    /// 映像の受信を開始する
-    func startStreamingAsReceiver() {
-        print("AppCoordinator: 受信側として映像受信準備開始 (自動トリガー想定)")
-        webRTCManager.startCall(as: .receiver)
-    }
-    
     /// ストリーミングを停止する
     func stopStreaming() {
         webRTCManager.disconnect()
@@ -268,12 +262,22 @@ extension AppCoordinator /* : MultipeerManagerDelegate */ {
 
 // MARK: - WebRTCManagerDelegate
 extension AppCoordinator /* : WebRTCManagerDelegate */ {
+    
     func webRTCManagerDidChangeConnectionState(_ manager: WebRTCManager, isConnected: Bool) {
         print("AppCoordinator: WebRTC connection state changed to \(isConnected)")
-        DispatchQueue.main.async { [weak self] in
-            self?.objectWillChange.send()
+
+        // 受信ロールで接続中ならカメラOFF
+        if manager.streamingRole == .receiver && isConnected {
+            cameraManager.pauseCaptureSession()
+        } else {
+            cameraManager.resumeCaptureSession()
+        }
+
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
         }
     }
+
     
     func webRTCManagerDidReceiveRemoteVideoTrack(_ manager: WebRTCManager, track: RTCVideoTrack?) {
         print("AppCoordinator: WebRTC remote video track set")

@@ -1,5 +1,5 @@
 //
-//  FooterBar.swift
+//  FooterBarView.swift
 //  SwingVisionPro
 //
 //  Created by 糸久秀喜 on 2025/03/30.
@@ -8,10 +8,8 @@
 import SwiftUI
 
 struct FooterBarView: View {
-    // 複数の manager を統合した AppCoordinator を環境オブジェクトとして利用
     @EnvironmentObject var appCoordinator: AppCoordinator
-    @State private var isShowingDeviceConnectionView = false
-
+    
     var body: some View {
         HStack {
             // アルバムボタン（元々のRectangleをそのまま維持）
@@ -26,7 +24,7 @@ struct FooterBarView: View {
             
             Spacer()
             
-            // 録画ボタン（録画中なら requestStopRecording、未録画なら requestStartRecording を実行）
+            // 録画ボタン
             Button(action: {
                 if appCoordinator.cameraManager.isRecording {
                     appCoordinator.requestStopRecording()
@@ -46,11 +44,11 @@ struct FooterBarView: View {
             
             Spacer()
             
-            // デバイス接続ボタン
+            // 右側のボタン: カメラ向き変更（ヘッダーから移動）
             Button(action: {
-                isShowingDeviceConnectionView = true
+                appCoordinator.cameraManager.switchCamera()
             }) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
+                Image(systemName: "camera.rotate")
                     .font(.system(size: 24))
                     .foregroundColor(.white)
                     .frame(width: 40, height: 40)
@@ -58,15 +56,15 @@ struct FooterBarView: View {
         }
         .padding(.horizontal, 30)
         .padding(.bottom, UIConstants.shared.bottomPadding)
-        .sheet(isPresented: $isShowingDeviceConnectionView) {
-            DeviceConnectionView()
-        }
     }
 }
 
 struct FooterBarView_Previews: PreviewProvider {
     static var previews: some View {
         FooterBarView()
-            .environmentObject(AppCoordinator(cameraManager: CameraManager(), multipeerManager: MultipeerManager()))
+            .environmentObject(
+                AppCoordinator(cameraManager: CameraManager(),
+                               multipeerManager: MultipeerManager())
+            )
     }
 }
