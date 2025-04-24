@@ -16,8 +16,8 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
-            if appCoordinator.webRTCManager.isStreaming && appCoordinator.webRTCManager.streamingRole == .receiver {
-                WebRTCStreamingView()
+            if appCoordinator.webRTCManager.streamingRole == .receiver {
+                     WebRTCStreamingView()
             } else {
                 CameraView()
                 ControlsView()

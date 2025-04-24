@@ -31,10 +31,17 @@ class MultipeerManager: NSObject, ObservableObject {
    private var advertiser: MCNearbyServiceAdvertiser!
    private var browser: MCNearbyServiceBrowser!
    
-   // 状態関連のプロパティ
-   @Published var discoveredPeers: [MCPeerID] = []
-   @Published var pendingInvitation: PendingInvitation?
-   @Published var connectedPeers: [MCPeerID] = []
+    // 状態関連のプロパティ
+    @Published var discoveredPeers: [MCPeerID] = []
+    @Published var pendingInvitation: PendingInvitation?
+    @Published var connectedPeers: [MCPeerID] = []
+
+    // メッセージ確認応答用のコールバック保持
+    private var pendingAcknowledgments: [String: (Bool) -> Void] = [:]
+
+    // メッセージ送信の再試行回数とタイマー保持
+    private var messageSendAttempts: [String: Int] = [:]
+    private var messageSendTimers: [String: Timer] = [:]
    
    override init() {
        // 保存されたピアIDがあればそれを使い、なければ新しく作成する
@@ -151,28 +158,135 @@ class MultipeerManager: NSObject, ObservableObject {
        disconnect()
    }
    
-   // メッセージ送信関数の追加
-   func sendMessage(_ message: PeerMessage, toPeers peers: [MCPeerID] = []) {
-       let encoder = JSONEncoder()
-       guard let data = try? encoder.encode(message) else {
-           print("MultipeerManager: Failed to encode message")
-           return
+    // メッセージ送信関数の追加
+       func sendMessage(_ message: PeerMessage, toPeers peers: [MCPeerID] = []) {
+           let encoder = JSONEncoder()
+           guard let data = try? encoder.encode(message) else {
+               print("MultipeerManager: Failed to encode message")
+               return
+           }
+           
+           // 特定のピアが指定されていなければ、接続中の全ピアに送信
+           let targetPeers = peers.isEmpty ? connectedPeers : peers
+           
+           guard !targetPeers.isEmpty else {
+               print("MultipeerManager: No peers to send message to")
+               return
+           }
+           
+           do {
+               try session.send(data, toPeers: targetPeers, with: .reliable)
+           } catch {
+               print("MultipeerManager: Failed to send message: \(error.localizedDescription)")
+           }
+       }
+    
+    // 確認応答付きメッセージ送信
+       func sendMessageWithAcknowledgment(_ message: PeerMessage, to peer: MCPeerID, completion: @escaping (Bool) -> Void) {
+           guard session.connectedPeers.contains(peer) else {
+               print("MultipeerManager: 指定されたピアは接続されていません: \(peer.displayName)")
+               completion(false)
+               return
+           }
+           
+           // メッセージIDに基づくコールバック保存
+           if let messageID = message.messageID {
+               pendingAcknowledgments[messageID] = completion
+               
+               // タイムアウト処理
+               DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+                   guard let self = self else { return }
+                   if let callback = self.pendingAcknowledgments.removeValue(forKey: messageID) {
+                       print("MultipeerManager: メッセージ確認応答がタイムアウト: \(messageID)")
+                       callback(false)
+                   }
+               }
+           }
+           
+           guard let data = try? JSONEncoder().encode(message) else {
+               print("MultipeerManager: メッセージのエンコードに失敗しました")
+               completion(false)
+               return
+           }
+           
+           do {
+               try session.send(data, toPeers: [peer], with: .reliable)
+               
+               // 確認応答が不要な場合（messageIDがない）は即座に成功を返す
+               if message.messageID == nil {
+                   completion(true)
+               }
+           } catch {
+               print("MultipeerManager: メッセージの送信に失敗しました: \(error.localizedDescription)")
+               if let messageID = message.messageID {
+                   pendingAcknowledgments.removeValue(forKey: messageID)
+               }
+               completion(false)
+           }
        }
        
-       // 特定のピアが指定されていなければ、接続中の全ピアに送信
-       let targetPeers = peers.isEmpty ? connectedPeers : peers
-       
-       guard !targetPeers.isEmpty else {
-           print("MultipeerManager: No peers to send message to")
-           return
+       // 再試行付きメッセージ送信
+       func sendMessageWithRetry(_ message: PeerMessage, to peer: MCPeerID, maxRetries: Int = 3, completion: @escaping (Bool) -> Void) {
+           guard let messageID = message.messageID else {
+               print("MultipeerManager: 再試行付き送信にはmessageIDが必要です")
+               completion(false)
+               return
+           }
+           
+           // 初期試行回数を設定
+           messageSendAttempts[messageID] = 0
+           performSendWithRetry(message: message, to: peer, maxRetries: maxRetries, completion: completion)
        }
        
-       do {
-           try session.send(data, toPeers: targetPeers, with: .reliable)
-       } catch {
-           print("MultipeerManager: Failed to send message: \(error.localizedDescription)")
+       private func performSendWithRetry(message: PeerMessage, to peer: MCPeerID, maxRetries: Int, completion: @escaping (Bool) -> Void) {
+           guard let messageID = message.messageID,
+                 let attempts = messageSendAttempts[messageID] else {
+               completion(false)
+               return
+           }
+           
+           // 最大再試行回数を超えた場合
+           if attempts >= maxRetries {
+               print("MultipeerManager: メッセージの最大再試行回数に達しました: \(messageID)")
+               messageSendAttempts.removeValue(forKey: messageID)
+               messageSendTimers[messageID]?.invalidate()
+               messageSendTimers.removeValue(forKey: messageID)
+               completion(false)
+               return
+           }
+           
+           // 再試行回数をインクリメント
+           messageSendAttempts[messageID] = attempts + 1
+           
+           // 確認応答付きで送信
+           sendMessageWithAcknowledgment(message, to: peer) { [weak self] success in
+               guard let self = self else { return }
+               
+               if success {
+                   // 成功したらクリーンアップして完了
+                   self.messageSendAttempts.removeValue(forKey: messageID)
+                   self.messageSendTimers[messageID]?.invalidate()
+                   self.messageSendTimers.removeValue(forKey: messageID)
+                   completion(true)
+               } else if attempts < maxRetries {
+                   // 失敗したら指数バックオフで再試行
+                   let delay = pow(2.0, Double(attempts)) * 0.5 // 0.5秒、1秒、2秒...
+                   
+                   // 既存のタイマーをキャンセル
+                   self.messageSendTimers[messageID]?.invalidate()
+                   
+                   // 新しいタイマーを設定
+                   let timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                       guard let self = self else { return }
+                       self.performSendWithRetry(message: message, to: peer, maxRetries: maxRetries, completion: completion)
+                   }
+                   self.messageSendTimers[messageID] = timer
+               } else {
+                   // 最大再試行回数に達した
+                   completion(false)
+               }
+           }
        }
-   }
 }
 
 // MARK: - MCSessionDelegate
@@ -204,17 +318,44 @@ extension MultipeerManager: MCSessionDelegate {
        }
    }
    
-   func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
+    func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
        let decoder = JSONDecoder()
        if let message = try? decoder.decode(PeerMessage.self, from: data) {
            DispatchQueue.main.async {
-               // デリゲートに通知
+               // 確認応答メッセージの場合
+               if message.type == .acknowledgment, let messageID = message.messageID {
+                   if let callback = self.pendingAcknowledgments.removeValue(forKey: messageID) {
+                       callback(true)
+                       print("MultipeerManager: 確認応答を受信: \(messageID)")
+                       return
+                   }
+               }
+               
+               // 通常のメッセージ処理
                self.delegate?.multipeerManager(self, didReceiveMessage: message, fromPeer: peerID)
                
                // 従来の通知方法も維持（下位互換性のため）
                NotificationCenter.default.post(name: .didReceivePeerMessage, object: message)
                
                print("MultipeerManager: Received message \(message.type) from \(peerID.displayName)")
+               
+               // 確認応答メッセージIDがある場合は確認応答を返信
+               if let messageID = message.messageID, message.type != .acknowledgment {
+                   let ackMessage = PeerMessage(
+                       type: .acknowledgment,
+                       sender: self.myPeerID.displayName,
+                       messageID: messageID
+                   )
+                   
+                   if let data = try? JSONEncoder().encode(ackMessage) {
+                       do {
+                           try session.send(data, toPeers: [peerID], with: .reliable)
+                           print("MultipeerManager: 確認応答を送信: \(messageID)")
+                       } catch {
+                           print("MultipeerManager: 確認応答の送信に失敗: \(error.localizedDescription)")
+                       }
+                   }
+               }
            }
        } else {
            print("MultipeerManager: Failed to decode message from \(peerID.displayName)")

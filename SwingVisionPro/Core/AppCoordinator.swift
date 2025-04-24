@@ -20,6 +20,9 @@ class AppCoordinator: NSObject, ObservableObject, CameraManagerDelegate, Multipe
     
     // 同期関連の状態と機能
     @Published var scheduledActionTime: TimeInterval?
+    
+    // 接続の状態を追跡
+    @Published var connectionStatus: [MCPeerID: ConnectionStatus] = [:]
 
     // MARK: - 初期化
 
@@ -36,16 +39,26 @@ class AppCoordinator: NSObject, ObservableObject, CameraManagerDelegate, Multipe
         cameraManager.delegate = self
         multipeerManager.delegate = self
         webRTCManager.delegate = self
+        
+        // 接続の健全性チェックを開始
+        webRTCManager.startConnectionHealthCheck()
     }
 
     deinit {
         // リソースの解放
         webRTCManager.disconnect()
+        webRTCManager.stopConnectionHealthCheck()
     }
-
+    
+    
     // MARK: - 同期関連メソッド
     
     func requestStartRecording() {
+        if webRTCManager.isStreaming && webRTCManager.streamingRole == .receiver {
+            print("AppCoordinator: Receiver mode — recording disabled")
+            return
+        }
+        
         let delay: TimeInterval = 5.0
         let startTime = Date().timeIntervalSince1970 + delay
         scheduledActionTime = startTime
@@ -61,6 +74,11 @@ class AppCoordinator: NSObject, ObservableObject, CameraManagerDelegate, Multipe
     }
     
     func requestStopRecording() {
+        if webRTCManager.isStreaming && webRTCManager.streamingRole == .receiver {
+            print("AppCoordinator: Receiver mode — stop-recording disabled")
+            return
+        }
+        
         let delay: TimeInterval = 5.0
         let stopTime = Date().timeIntervalSince1970 + delay
         scheduledActionTime = stopTime
@@ -81,7 +99,19 @@ class AppCoordinator: NSObject, ObservableObject, CameraManagerDelegate, Multipe
             return
         }
         
-        multipeerManager.sendMessage(message, toPeers: multipeerManager.connectedPeers)
+        // 確認応答が必要なメッセージタイプの場合
+        if [PeerMessageType.webrtcOffer, .webrtcAnswer, .webrtcCandidate, .webrtcBye].contains(message.type) {
+            for peer in multipeerManager.connectedPeers {
+                multipeerManager.sendMessageWithAcknowledgment(message, to: peer) { success in
+                    if !success {
+                        print("AppCoordinator: Failed to send message to \(peer.displayName), will retry automatically")
+                    }
+                }
+            }
+        } else {
+            // 通常のメッセージ
+            multipeerManager.sendMessage(message, toPeers: multipeerManager.connectedPeers)
+        }
     }
     
     private func scheduleLocalRecording(startTime: TimeInterval) {
@@ -107,6 +137,11 @@ class AppCoordinator: NSObject, ObservableObject, CameraManagerDelegate, Multipe
     }
     
     private func processSyncMessage(_ message: PeerMessage) {
+        if webRTCManager.isStreaming && webRTCManager.streamingRole == .receiver {
+            print("AppCoordinator: Receiver mode — sync message ignored (\(message.type))")
+            return
+        }
+        
         switch message.type {
         case .startRecording:
             if let payload = message.payload, let startTime = TimeInterval(payload) {
@@ -123,10 +158,9 @@ class AppCoordinator: NSObject, ObservableObject, CameraManagerDelegate, Multipe
         }
     }
     
-    func startStreamingAsPublisher(targetPeer: MCPeerID? = nil) {
-        print("AppCoordinator: 送信側として映像配信を開始 - 配信先: \(targetPeer?.displayName ?? "すべて")")
-        
-        webRTCManager.startCall(as: .sender, targetPeer: targetPeer)
+    func startStreamingAsPublisher(targetPeer: MCPeerID) {
+        print("AppCoordinator: 送信側として映像配信を開始 - 配信先: \(targetPeer.displayName)")
+        webRTCManager.startCall(as: .sender, targetPeers: [targetPeer])
     }
     
     /// ストリーミングを停止する
@@ -149,7 +183,13 @@ class AppCoordinator: NSObject, ObservableObject, CameraManagerDelegate, Multipe
             self?.objectWillChange.send()
         }
     }
+    
+    // 診断レポートを生成
+    func generateConnectionDiagnostics() -> String {
+        return webRTCManager.diagnoseConnectionStatus()
+    }
 }
+
 
 // MARK: - CameraManagerDelegate
 extension AppCoordinator /* : CameraManagerDelegate */ {
@@ -225,11 +265,44 @@ extension AppCoordinator /* : MultipeerManagerDelegate */ {
             } else {
                  print("AppCoordinator: Failed to decode Base64 payload for WebRTC message.")
             }
-        
+            
+        case .acknowledgment:
+            print("AppCoordinator: Received acknowledgment from \(peerID.displayName)")
+            // ここでは何もしない。MultipeerManager内部で処理される
+            
         default:
             print("AppCoordinator: Received unhandled message type \(message.type)")
             break
         }
+        DispatchQueue.main.async { [weak self] in
+            self?.objectWillChange.send()
+        }
+    }
+    
+    // 新しいメソッド：確認応答を受信したときの処理
+    func multipeerManager(_ manager: MultipeerManager, didReceiveAcknowledgment messageID: String, fromPeer peerID: MCPeerID) {
+        print("AppCoordinator: Received acknowledgment for message \(messageID) from \(peerID.displayName)")
+        DispatchQueue.main.async { [weak self] in
+            self?.objectWillChange.send()
+        }
+    }
+    
+    // 新しいメソッド：メッセージ送信に失敗したときの処理
+    func multipeerManager(_ manager: MultipeerManager, didFailToSendMessage message: PeerMessage, toPeer peerID: MCPeerID, afterRetries retries: Int) {
+        print("AppCoordinator: Failed to send message of type \(message.type) to \(peerID.displayName) after \(retries) retries")
+        
+        // WebRTC関連のメッセージであれば、接続状態を更新
+        if [PeerMessageType.webrtcOffer, .webrtcAnswer, .webrtcCandidate, .webrtcBye].contains(message.type) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                
+                // 接続問題を通知
+                if self.webRTCManager.isStreaming {
+                    print("AppCoordinator: WebRTC signaling failed, this may affect streaming quality")
+                }
+            }
+        }
+        
         DispatchQueue.main.async { [weak self] in
             self?.objectWillChange.send()
         }
@@ -263,21 +336,39 @@ extension AppCoordinator /* : MultipeerManagerDelegate */ {
 // MARK: - WebRTCManagerDelegate
 extension AppCoordinator /* : WebRTCManagerDelegate */ {
     
+    // MARK: - WebRTCManagerDelegate
     func webRTCManagerDidChangeConnectionState(_ manager: WebRTCManager, isConnected: Bool) {
-        print("AppCoordinator: WebRTC connection state changed to \(isConnected)")
+        print("AppCoordinator: WebRTC connection state changed to \(isConnected) (role=\(manager.streamingRole))")
 
-        // 受信ロールで接続中ならカメラOFF
-        if manager.streamingRole == .receiver && isConnected {
-            cameraManager.pauseCaptureSession()
-        } else {
-            cameraManager.resumeCaptureSession()
+        switch manager.streamingRole {
+        case .receiver:
+            if isConnected {
+                // 接続成功 → カメラ停止
+                cameraManager.pauseCaptureSession()
+            } else {
+                // 切断・失敗時は、リモート映像トラックが完全になくなったタイミングで戻す
+                if manager.remoteVideoTracks.isEmpty {
+                    print("AppCoordinator: 完全切断判定。受信モード解除します。")
+                    manager.streamingRole = .none
+                    manager.isStreaming = false
+                    cameraManager.resumeCaptureSession()
+                } else {
+                    print("AppCoordinator: 切断を検知したけどまだトラックが残ってるのでモード継続")
+                }
+            }
+
+        case .sender:
+            // 送信中はここでは制御せず stopStreaming() 呼び出しで扱う
+            break
+
+        default:
+            break
         }
 
         DispatchQueue.main.async {
             self.objectWillChange.send()
         }
     }
-
     
     func webRTCManagerDidReceiveRemoteVideoTrack(_ manager: WebRTCManager, track: RTCVideoTrack?) {
         print("AppCoordinator: WebRTC remote video track set")
@@ -287,36 +378,140 @@ extension AppCoordinator /* : WebRTCManagerDelegate */ {
     }
     
     func webRTCManager(_ manager: WebRTCManager, needsToSendSignalingMessage message: Data, targetPeer: MCPeerID?) {
-      guard let signalingMessage = try? JSONDecoder().decode(WebRTCSignalingMessage.self, from: message) else {
-          print("AppCoordinator: Failed to decode WebRTCSignalingMessage for determining PeerMessage type.")
-          return
-      }
+        guard let signalingMessage = try? JSONDecoder().decode(WebRTCSignalingMessage.self, from: message) else {
+            print("AppCoordinator: Failed to decode WebRTCSignalingMessage for determining PeerMessage type.")
+            return
+        }
         
-      let messageType: PeerMessageType
-      switch signalingMessage.type {
-      case .offer: messageType = .webrtcOffer
-      case .answer: messageType = .webrtcAnswer
-      case .candidate: messageType = .webrtcCandidate
-      case .bye: messageType = .webrtcBye
-      }
+        let messageType: PeerMessageType
+        switch signalingMessage.type {
+        case .offer: messageType = .webrtcOffer
+        case .answer: messageType = .webrtcAnswer
+        case .candidate: messageType = .webrtcCandidate
+        case .bye: messageType = .webrtcBye
+        }
         
-      let payloadString = message.base64EncodedString()
-          
-      let peerMessage = PeerMessage(
-          type: messageType,
-          sender: multipeerManager.myPeerID.displayName,
-          payload: payloadString
-      )
-          
-      if let targetPeer = targetPeer {
-          print("AppCoordinator: Sending signaling message to specific peer: \(targetPeer.displayName)")
-          multipeerManager.sendMessage(peerMessage, toPeers: [targetPeer])
-      } else {
-          print("AppCoordinator: Broadcasting signaling message to all peers")
-          multipeerManager.sendMessage(peerMessage, toPeers: multipeerManager.connectedPeers)
-      }
-      DispatchQueue.main.async { [weak self] in
-          self?.objectWillChange.send()
-      }
-  }
+        let payloadString = message.base64EncodedString()
+        
+        // messageIDを取得（あれば）
+        let peerMessage = PeerMessage(
+            type: messageType,
+            sender: multipeerManager.myPeerID.displayName,
+            payload: payloadString,
+            messageID: signalingMessage.messageID
+        )
+        
+        if let targetPeer = targetPeer {
+            print("AppCoordinator: Sending signaling message to specific peer: \(targetPeer.displayName)")
+            multipeerManager.sendMessage(peerMessage, toPeers: [targetPeer])
+        } else {
+            print("AppCoordinator: Broadcasting signaling message to all peers")
+            multipeerManager.sendMessage(peerMessage, toPeers: multipeerManager.connectedPeers)
+        }
+        
+        DispatchQueue.main.async { [weak self] in
+            self?.objectWillChange.send()
+        }
+    }
+    
+    // 新しいメソッド：確認応答付きのシグナリングメッセージを送信
+    func webRTCManager(_ manager: WebRTCManager, needsToSendSignalingMessageWithAck message: Data, targetPeer: MCPeerID?, completion: @escaping (Bool) -> Void) {
+        guard let signalingMessage = try? JSONDecoder().decode(WebRTCSignalingMessage.self, from: message) else {
+            print("AppCoordinator: Failed to decode WebRTCSignalingMessage.")
+            completion(false)
+            return
+        }
+        
+        let messageType: PeerMessageType
+        switch signalingMessage.type {
+        case .offer: messageType = .webrtcOffer
+        case .answer: messageType = .webrtcAnswer
+        case .candidate: messageType = .webrtcCandidate
+        case .bye: messageType = .webrtcBye
+        }
+        
+        let payloadString = message.base64EncodedString()
+        
+        let peerMessage = PeerMessage(
+            type: messageType,
+            sender: multipeerManager.myPeerID.displayName,
+            payload: payloadString,
+            messageID: signalingMessage.messageID
+        )
+        
+        if let targetPeer = targetPeer {
+            print("AppCoordinator: Sending signaling message with ACK to: \(targetPeer.displayName)")
+            multipeerManager.sendMessageWithAcknowledgment(peerMessage, to: targetPeer, completion: completion)
+        } else {
+            print("AppCoordinator: Broadcasting signaling message to all peers")
+            // ブロードキャスト時は個別に送信して各ピアからのACKを処理
+            let peers = multipeerManager.connectedPeers
+            var successCount = 0
+            var failCount = 0
+            
+            if peers.isEmpty {
+                // 接続されたピアがない場合は失敗として扱う
+                completion(false)
+                return
+            }
+            
+            for peer in peers {
+                multipeerManager.sendMessageWithAcknowledgment(peerMessage, to: peer) { success in
+                    if success {
+                        successCount += 1
+                    } else {
+                        failCount += 1
+                    }
+                    
+                    // すべてのピアへの送信を試みた後に結果を返す
+                    if successCount + failCount == peers.count {
+                        // 少なくとも1つのピアに成功したら成功とみなす
+                        completion(successCount > 0)
+                    }
+                }
+            }
+        }
+    }
+    
+    // 新しいメソッド：接続タイムアウトの処理
+    func webRTCManager(_ manager: WebRTCManager, didFailWithTimeout peer: MCPeerID) {
+        print("AppCoordinator: WebRTC connection timed out with peer \(peer.displayName)")
+        
+        // UIに通知
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            // トースト通知などを表示
+            self.objectWillChange.send()
+        }
+    }
+    
+    // 新しいメソッド：接続失敗の処理
+    func webRTCManager(_ manager: WebRTCManager, connectionDidFail peer: MCPeerID, canRetry: Bool) {
+        print("AppCoordinator: WebRTC connection failed with peer \(peer.displayName), canRetry: \(canRetry)")
+        
+        if canRetry {
+            // 少し間をおいて自動再接続を試みる
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                guard let self = self else { return }
+                
+                if manager.streamingRole == .sender {
+                    print("AppCoordinator: 送信側として再接続を試みます: \(peer.displayName)")
+                    manager.startCall(as: .sender, targetPeers: [peer])
+                }
+            }
+        }
+        
+        DispatchQueue.main.async { [weak self] in
+            self?.objectWillChange.send()
+        }
+    }
+    
+    // 新しいメソッド：接続状態の更新
+    func webRTCManager(_ manager: WebRTCManager, didUpdateConnectionStatus status: [MCPeerID: ConnectionStatus]) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.connectionStatus = status
+            self.objectWillChange.send()
+        }
+    }
 }

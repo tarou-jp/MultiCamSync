@@ -96,6 +96,7 @@ struct HeaderBarView: View {
         }
         .padding(.horizontal)
         .padding(.bottom, 10)
+        .frame(height: 0)
         
         // MARK: 配信先選択シート
         .sheet(isPresented: $showBroadcastSheet) {
@@ -112,4 +113,3 @@ struct HeaderBarView: View {
         }
     }
 }
-
