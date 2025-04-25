@@ -5,6 +5,7 @@
 
 import AVFoundation
 import Combine
+import UIKit
 
 // MARK: - Types
 enum CameraResolution: String, CaseIterable { case hd = "HD", _4k = "4K" }
@@ -228,12 +229,25 @@ final class CameraManager: NSObject, ObservableObject {
 
     // MARK: Recording
     func startRecording() {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(Date().timeIntervalSince1970).mov")
+        let url = FileManager.default.temporaryDirectory
+                     .appendingPathComponent("\(Date().timeIntervalSince1970).mov")
         try? FileManager.default.removeItem(at: url)
-        videoOut.startRecording(to: url, recordingDelegate: self)
+
         isRecording = true
+        videoOut.startRecording(to: url, recordingDelegate: self)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self = self else { return }
+            if self.isRecording, self.videoOut.recordedDuration == .zero {
+                print("⚠️ didStartRecording が来ない → 失敗リカバリ")
+                self.isRecording = false
+            }
+        }
     }
-    func stopRecording() { if videoOut.isRecording { videoOut.stopRecording() }; isRecording = false }
+
+    func stopRecording() {
+        if videoOut.isRecording { videoOut.stopRecording() }
+    }
 }
 
 // MARK: Helpers
@@ -251,12 +265,34 @@ private extension AVCaptureDevice {
 
 // MARK: Delegates
 extension CameraManager: AVCaptureFileOutputRecordingDelegate {
+    func fileOutput(_ output: AVCaptureFileOutput,
+                    didStartRecordingTo fileURL: URL,
+                    from connections: [AVCaptureConnection]) {
+        DispatchQueue.main.async {
+            print("録画開始: \(fileURL.path)")
+            self.delegate?.cameraManagerDidStartRecording(self, at: fileURL)
+        }
+    }
+    
     func fileOutput(_: AVCaptureFileOutput,
-                    didFinishRecordingTo url: URL,
-                    from _: [AVCaptureConnection],
-                    error: Error?) {
-        if let e = error { delegate?.cameraManagerDidFailRecording(self, with: e) }
-        else { delegate?.cameraManagerDidFinishRecording(self, to: url) }
+                         didFinishRecordingTo url: URL,
+                         from _: [AVCaptureConnection],
+                         error: Error?) {
+        isRecording = false
+        
+        DispatchQueue.main.async {
+            if let e = error {
+                print("録画エラー: \(e.localizedDescription)")
+                self.delegate?.cameraManagerDidFailRecording(self, with: e)
+                return
+            }
+
+            print("録画完了: \(url.path)")
+            self.delegate?.cameraManagerDidFinishRecording(self, to: url)
+
+            // ★ 元コードと同じくカメラロールへ保存
+            UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil)
+        }
     }
 }
 extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {

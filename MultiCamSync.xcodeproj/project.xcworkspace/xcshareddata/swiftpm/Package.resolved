@@ -1,13 +1,13 @@
 {
-  "originHash" : "7ca243407a3b132834ec3b117a3aea85a8f743151ef868a872c8bbf8082921f6",
+  "originHash" : "505706693e7c728290101c61441c8ced3660e680a2b04869ba1f3a37512ebc89",
   "pins" : [
     {
-      "identity" : "webrtc",
+      "identity" : "kronos",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/stasel/WebRTC.git",
+      "location" : "https://github.com/MobileNativeFoundation/Kronos.git",
       "state" : {
-        "revision" : "5b2eb61cace7d62726b29a38b768b07d6bc55c45",
-        "version" : "134.0.0"
+        "revision" : "f331821314f9b35867a18c5c8fc2f918536d79ac",
+        "version" : "4.3.1"
       }
     }
   ],

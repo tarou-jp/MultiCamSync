@@ -13,6 +13,9 @@ struct ContentView: View {
     @State private var cancellable: AnyCancellable?
     @State private var showInvitationAlert = false
     @State private var currentInvitation: PendingInvitation? = nil
+    @State private var now = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
     
     var body: some View {
         ZStack {
@@ -20,26 +23,28 @@ struct ContentView: View {
             ControlsView()
             
             if let actionTime = appCoordinator.scheduledActionTime,
-               Date().timeIntervalSince1970 < actionTime {
+               now.timeIntervalSince1970 < actionTime {
                 CountdownBackdropView(targetTime: actionTime)
-                    .transition(.opacity)
+            }
+        }
+        .onReceive(timer) { tick in
+            now = tick
+            if let t = appCoordinator.scheduledActionTime,
+               now.timeIntervalSince1970 >= t {
+                appCoordinator.scheduledActionTime = nil
             }
         }
         .onAppear {
-            print("ContentView appeared")
             cancellable = appCoordinator.multipeerManager.$pendingInvitation
                 .receive(on: RunLoop.main)
                 .sink { invitation in
-                    if let invitation = invitation {
-                        print("DEBUG: pendingInvitation受信: \(invitation.peerID.displayName)")
-                        self.currentInvitation = invitation
-                        self.showInvitationAlert = true
+                    if let invit = invitation {
+                        currentInvitation = invit
+                        showInvitationAlert = true
                     }
                 }
         }
-        .onDisappear {
-            cancellable?.cancel()
-        }
+        .onDisappear { cancellable?.cancel() }
         .alert(isPresented: $showInvitationAlert) {
             if let invitation = currentInvitation {
                 if !appCoordinator.multipeerManager.connectedPeers.isEmpty {

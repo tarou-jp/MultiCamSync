@@ -10,8 +10,10 @@ import Foundation
 enum PeerMessageType: String, Codable {
     case startRecording
     case stopRecording
-    
     case acknowledgment
+    
+    case ping
+    case timeSync
 }
 
 struct PeerMessage: Codable {
